@@ -21,7 +21,7 @@ object ex1 {
       |p1 AS ( SELECT category, product, userId,
       |cast(to_utc_timestamp(eventTime, 'PST') AS int) AS op_date,
       |eventType,
-      |lag(eventTime) OVER (PARTITION BY category, userid ORDER BY eventtime) AS lagg
+      |LAG(eventTime) OVER (PARTITION BY category, userid ORDER BY eventtime) AS lagg
       |FROM exdata),
       |
       |p2 AS ( SELECT *,
@@ -29,23 +29,23 @@ object ex1 {
       |FROM p1),
       |
       |p3 AS (SELECT category, product, userId, op_date, eventType, cast(lagg AS int), lag_seconds,
-      |CASE WHEN $sessionCond THEN 1 else 0 end AS session_break
+      |CASE WHEN $sessionCond THEN 1 ELSE 0 END AS session_break
       |FROM p2),
       |
       |p33 as (
-      |SELECT *, sum(session_break) over(ORDER BY op_date range between unbounded preceding and current row) as rng FROM p3
+      |SELECT *, SUM(session_break) OVER (ORDER BY op_date range between unbounded preceding and current row) as rng FROM p3
       |),
       |
       |p4 AS (
       |SELECT *,
-      |first_value(op_date) OVER (PARTITION BY category, userid, rng ORDER BY op_date) AS session_start,
-      |last_value(op_date) OVER (PARTITION BY category, userid, rng ORDER BY op_date, userid RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS session_end
+      |FIRST_VALUE(op_date) OVER (PARTITION BY category, userid, rng ORDER BY op_date) AS session_start ,
+      |LAST_VALUE(op_date) OVER (PARTITION BY category, userid, rng ORDER BY op_date, userid RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS session_end
       |FROM p33
       |)
       |
       |SELECT category, product, userId, cast(op_date AS timestamp), eventType,
-      |cast(session_start AS timestamp),
-      |cast(session_end AS timestamp),
+      |cast(session_start AS timestamp) ,
+      |cast(session_end AS timestamp) ,
       |dense_rank() OVER (ORDER BY session_end) AS session_id
       |FROM p4
       |ORDER BY session_id
