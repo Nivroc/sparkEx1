@@ -15,6 +15,8 @@ object ex1 {
     val baseDf = spark.read.option("header","true").csv(path)
     baseDf.createOrReplaceTempView("exdata")
 
+    //По сути запрос на первое упражнение. Функция т.к. условие для обрыва сессии переменное как это требуется для
+    // последнего задания
     def mainQuery(sessionCond: String) = s"""WITH
       |p1 AS ( SELECT category, product, userId,
       |cast(to_utc_timestamp(eventTime, 'PST') AS int) AS op_date,
@@ -49,16 +51,19 @@ object ex1 {
       |order by session_id
       |""".stripMargin
 
+      //обрыв сессий только если больше 5 минут
     val firstWaySession = spark.sql(mainQuery("lag_seconds >= 300"))
     firstWaySession.cache()
     firstWaySession.show(30)
     firstWaySession.createOrReplaceTempView("saturated_data")
 
+    //обрыв сессий если больше 5 минут или сменился продукт
     val secondWaySession = spark.sql(mainQuery("(lag_seconds >= 300 or product != lag(product) over(order by op_date))"))
     secondWaySession.cache()
     secondWaySession.show(30)
     secondWaySession.createOrReplaceTempView("saturated_data2")
 
+    //среднее время
     spark.sql(
       s"""SELECT distinct
          |category,
@@ -67,6 +72,7 @@ object ex1 {
          |GROUP BY category
        """.stripMargin).show(30)
 
+    //кто меньше минуты, кто 1-5, кто больше 5ти минут
     spark.sql(
       s"""WITH a1 AS
          |(SELECT distinct
@@ -90,6 +96,7 @@ object ex1 {
          |ORDER BY category, cat
        """.stripMargin).show(30)
 
+    //ранг по времени проведённому за продуктом в рамкаx одной сессии
     spark.sql(
       """
         |WITH timed AS (
