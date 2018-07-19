@@ -1,3 +1,4 @@
+import model.RawTable
 import org.apache.spark.{SparkConf, SparkContext}
 
 object ex1 {
