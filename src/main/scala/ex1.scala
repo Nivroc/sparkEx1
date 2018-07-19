@@ -2,8 +2,6 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object ex1 {
 
-  case class User(id: Int, age: Int)
-
   val conf: SparkConf = new SparkConf().setMaster("local").setAppName("TestAssignmentApp")
   val sc: SparkContext = new SparkContext(conf)
   val spark = org.apache.spark.sql.SparkSession.builder
@@ -13,7 +11,7 @@ object ex1 {
 
   def main(args: Array[String]) {
 
-    val path = "/Users/ibaklashov/Documents/IdeaProjects/git/SparkEx211/src/main/resources/exdata.csv"
+    val path = "/Users/ibaklashov/Documents/IdeaProjects/git/SparkEx1/src/main/resources/exdata.csv"
     val baseDf = spark.read.option("header","true").csv(path)
     baseDf.createOrReplaceTempView("exdata")
 
