@@ -21,7 +21,7 @@ object ex1 {
       |p1 AS ( SELECT category, product, userId,
       |cast(to_utc_timestamp(eventTime, 'PST') AS int) AS op_date,
       |eventType,
-      |lag(eventTime) OVER (partition by category, userid order by eventtime) AS lagg
+      |lag(eventTime) OVER (PARTITION BY category, userid ORDER BY eventtime) AS lagg
       |FROM exdata),
       |
       |p2 AS ( SELECT *,
@@ -29,26 +29,26 @@ object ex1 {
       |FROM p1),
       |
       |p3 AS (SELECT category, product, userId, op_date, eventType, cast(lagg AS int), lag_seconds,
-      |case when $sessionCond then 1 else 0 end AS session_break
+      |CASE WHEN $sessionCond THEN 1 else 0 end AS session_break
       |FROM p2),
       |
       |p33 as (
-      |SELECT *, sum(session_break) over(order by op_date range between unbounded preceding and current row) as rng from p3
+      |SELECT *, sum(session_break) over(ORDER BY op_date range between unbounded preceding and current row) as rng FROM p3
       |),
       |
       |p4 AS (
       |SELECT *,
-      |first_value(op_date) OVER (partition by category, userid, rng order by op_date) AS session_start,
-      |last_value(op_date) OVER (partition by category, userid, rng order by op_date, userid RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS session_end
+      |first_value(op_date) OVER (PARTITION BY category, userid, rng ORDER BY op_date) AS session_start,
+      |last_value(op_date) OVER (PARTITION BY category, userid, rng ORDER BY op_date, userid RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS session_end
       |FROM p33
       |)
       |
       |SELECT category, product, userId, cast(op_date AS timestamp), eventType,
       |cast(session_start AS timestamp),
       |cast(session_end AS timestamp),
-      |dense_rank() OVER (order by session_end) AS session_id
+      |dense_rank() OVER (ORDER BY session_end) AS session_id
       |FROM p4
-      |order by session_id
+      |ORDER BY session_id
       |""".stripMargin
 
       //обрыв сессий только если больше 5 минут
@@ -58,7 +58,7 @@ object ex1 {
     firstWaySession.createOrReplaceTempView("saturated_data")
 
     //обрыв сессий если больше 5 минут или сменился продукт
-    val secondWaySession = spark.sql(mainQuery("(lag_seconds >= 300 or product != lag(product) over(order by op_date))"))
+    val secondWaySession = spark.sql(mainQuery("(lag_seconds >= 300 or product != lag(product) over(ORDER BY op_date))"))
     secondWaySession.cache()
     secondWaySession.show(30)
     secondWaySession.createOrReplaceTempView("saturated_data2")
@@ -84,12 +84,12 @@ object ex1 {
          |GROUP BY category, session_id, userid),
          |a2 AS (
          |SELECT category, userid, duration,
-         |case
-         |when duration < 60 then '< 1 min'
-         |when duration >= 60 and duration <= 300 then '1 - 5 min'
+         |CASE
+         |WHEN duration < 60 THEN '< 1 min'
+         |WHEN duration >= 60 and duration <= 300 THEN '1 - 5 min'
          |else '> 5 mins'
          |end cat
-         |from a1)
+         |FROM a1)
          |SELECT distinct category, cat, count(userid)
          |FROM a2
          |GROUP BY category, cat
@@ -102,18 +102,18 @@ object ex1 {
         |WITH timed AS (
         |SELECT category, product, userid, session_id,
         |round(avg(cast(cast(session_end AS int) - cast(session_start AS int) AS timestamp)),2) as duration
-        |from saturated_data2
-        |group by category, userid, session_id, product
+        |FROM saturated_data2
+        |GROUP BY category, userid, session_id, product
         |),
         |sorted AS (
-        |select category, product, sum(duration) as time
-        |from timed
-        |group by category, product
-        |order by category, time desc),
-        |final as(
-        |select *, row_number() over (partition by category order by time desc) as rn from sorted
+        |SELECT category, product, sum(duration) as time
+        |FROM timed
+        |GROUP BY category, product
+        |ORDER BY category, time desc),
+        |final AS (
+        |SELECT *, row_number() over (PARTITION BY category ORDER BY time DESC) AS rn FROM sorted
         |)
-        |select category, product from final where rn <= 10
+        |SELECT category, product FROM final where rn <= 10
       """.stripMargin
     ).show()
 
