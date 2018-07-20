@@ -1,39 +1,36 @@
+
+import java.sql.Timestamp
+import java.time.temporal.{ChronoUnit, Temporal, TemporalUnit}
+
 import org.apache.spark.sql.{Encoder, Encoders}
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.expressions.Aggregator
+import org.apache.spark.sql.types._
 
 object tstAggregator extends App {
 
-  case class MyRow(key: Key, product: String, time: Int)
+  case class RealTableRow(category: String, product: String, userId: String, eventTime: Timestamp, eventType: String)
   case class TableRow(category: String, product: String, userId: Int, time: Int)
-  case class SaturatedTableRow(category: String, userId: Int, time:Int, sessionId:Int, sessionStart: Int, sessionEnd:Int)
-  case class Session(id: Int, start: Int, finish: Int)
-  case class Key(category: String, userId: Int)
-  case class TimedKey(category: String, userId: Int, time: Int)
-  case class IdKey(sid: Int, category: String, userId: Int)
-  case class NewRow(category: String, product: String, userId: Int, time: Int, start: Int, finish: Int)
-  case class A(value :Map[Key, Seq[Int]])
+  case class SaturatedTableRow(category: String, userId: String, eventTime: Timestamp, sessionId:Int, sessionStart: Timestamp, sessionEnd: Timestamp)
+  case class A(value :Map[(String, String), Seq[Timestamp]])
   case class B(value :Seq[SaturatedTableRow])
 
-  object MyAgg extends Aggregator[MyRow, A, B] {
+  object MyAgg extends Aggregator[RealTableRow, A, B] {
 
-    override def zero: A = A(Map.empty[Key, Seq[Int]])
+    override def zero: A = A(Map.empty[(String, String), Seq[Timestamp]])
 
-    override def reduce(b: A, a: MyRow): A = A(b.value.updated(a.key, b.value.getOrElse(a.key, Nil) :+ a.time))
+    override def reduce(b: A, a: RealTableRow): A =
+      A(b.value.updated((a.category, a.userId), b.value.getOrElse((a.category, a.userId), Nil) :+ a.eventTime))
 
     override def merge(b1: A, b2: A): A =
       A((b1.value.keySet ++ b2.value.keySet).map(key => (key, b1.value.getOrElse(key, Nil) ++ b2.value.getOrElse(key, Nil))).toMap)
 
     override def finish(reduction: A): B = {
-      val st1 = reduction.value.map(kv => kv._1 -> kv._2.sorted.foldLeft(Seq.empty[Seq[Int]])((s, e) =>
-        if (s.nonEmpty && s.last.last + 3 >= e) s.init :+ (s.last :+ e) else s :+ Seq(e)))
-      val globalids = st1.values.toSeq.flatten.zipWithIndex.toMap
-      val ided = st1.foldLeft(Map.empty[IdKey, Seq[Int]])((mp, kv) =>
-        mp ++ kv._2.map(sq => (IdKey(globalids(sq), kv._1.category, kv._1.userId), sq)).toMap)
-      val stEnd = ided.map(kv => kv._2 -> (Key(kv._1.category, kv._1.userId), Session(kv._1.sid, kv._2.head, kv._2.last)))
-      B(stEnd.foldLeft(Seq.empty[SaturatedTableRow])((mp, e) =>
-        mp ++ e._1.map(time => SaturatedTableRow(e._2._1.category, e._2._1.userId, time, e._2._2.id, e._2._2.start, e._2._2.finish))))
-
+      val st1 = reduction.value.map(kv => kv._1 -> kv._2.sortWith((x, y) => x.before(y)).foldLeft(Seq.empty[Seq[Timestamp]])((s, e) =>
+        if (s.nonEmpty && s.last.last.toLocalDateTime.minus(5, ChronoUnit.MINUTES).isBefore(e.toLocalDateTime)) s.init :+ (s.last :+ e) else s :+ Seq(e)))
+      val globalIds = st1.values.toSeq.flatten.zipWithIndex.toMap
+      B(st1.foldLeft(Seq.empty[SaturatedTableRow])((sq, kv) =>
+        sq ++ kv._2.flatMap(sq => sq.map(time => SaturatedTableRow(kv._1._1, kv._1._2, time, globalIds(sq), sq.head, sq.last)))))
     }
 
     override def bufferEncoder: Encoder[A] = Encoders.product[A]
@@ -47,8 +44,22 @@ object tstAggregator extends App {
     .master("local")
     .appName("Spark CSV Reader")
     .getOrCreate
-
   import spark.implicits._
+
+  val path = "/Users/ibaklashov/Documents/IdeaProjects/git/SparkEx1/src/main/resources/exdata.csv"
+  val schema = new StructType()
+    .add("category", StringType)
+    .add("product", StringType)
+    .add("userId", StringType)
+    .add("eventTime", TimestampType)
+    .add("eventType", StringType)
+
+
+  val baseDf = spark.read.schema(schema).option("header","true").csv(path).as[RealTableRow]
+
+  baseDf.show(30)
+
+
 
   val dataSeq = Seq(
     TableRow("book", "Scala", 1, 1),
@@ -63,13 +74,12 @@ object tstAggregator extends App {
     TableRow("PC", "Scala", 1, 30)
   )
 
-  val rawDS = spark.createDataFrame(dataSeq.map(x => MyRow(Key(x.category, x.userId), x.product, x.time))).as[MyRow]
-
   val rawDSS = spark.createDataFrame(dataSeq).as[TableRow]
 
   val hzcho = MyAgg.toColumn.name("average_salary")
-  spark.createDataFrame(rawDS.select(hzcho).collect().head.value)
+ spark.createDataFrame(baseDf.select(hzcho).collect().head.value)
     .as[SaturatedTableRow]
-    .join(rawDSS, Seq("category", "userId", "time")).show()
+   // .join(baseDf, Seq("category", "userId", "eventTime"))
+  .orderBy("sessionId", "eventTime").show(27)
 
 }

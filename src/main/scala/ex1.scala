@@ -1,4 +1,4 @@
-import model.RawTable
+
 import org.apache.spark.{SparkConf, SparkContext}
 
 object ex1 {
@@ -12,8 +12,9 @@ object ex1 {
 
   def main(args: Array[String]) {
 
-    val path = "/Users/ibaklashov/Documents/IdeaProjects/git/SparkEx1/src/main/resources/exdata.csv"
-    val baseDf = spark.read.option("header","true").csv(path)
+    val path =
+      "/Users/ibaklashov/Documents/IdeaProjects/git/SparkEx1/src/main/resources/exdata.csv"
+    val baseDf = spark.read.option("header", "true").csv(path)
     baseDf.createOrReplaceTempView("exdata")
 
     //По сути запрос на первое упражнение. Функция т.к. условие для обрыва сессии переменное как это требуется для
@@ -52,21 +53,21 @@ object ex1 {
       |ORDER BY session_id
       |""".stripMargin
 
-      //обрыв сессий только если больше 5 минут
+    //обрыв сессий только если больше 5 минут
     val firstWaySession = spark.sql(mainQuery("lag_seconds >= 300"))
     firstWaySession.cache()
     firstWaySession.show(30)
     firstWaySession.createOrReplaceTempView("saturated_data")
 
     //обрыв сессий если больше 5 минут или сменился продукт
-    val secondWaySession = spark.sql(mainQuery("(lag_seconds >= 300 or product != lag(product) over(ORDER BY op_date))"))
+    val secondWaySession = spark.sql(mainQuery(
+      "(lag_seconds >= 300 or product != lag(product) over(ORDER BY op_date))"))
     secondWaySession.cache()
     secondWaySession.show(30)
     secondWaySession.createOrReplaceTempView("saturated_data2")
 
     //среднее время
-    spark.sql(
-      s"""SELECT distinct
+    spark.sql(s"""SELECT distinct
          |category,
          |round(avg(cast(cast(session_end AS int) - cast(session_start AS int) AS timestamp)), 2) AS median_duration
          |FROM saturated_data
@@ -74,8 +75,7 @@ object ex1 {
        """.stripMargin).show(30)
 
     //кто меньше минуты, кто 1-5, кто больше 5ти минут
-    spark.sql(
-      s"""WITH a1 AS
+    spark.sql(s"""WITH a1 AS
          |(SELECT distinct
          |category,
          |session_id,
@@ -98,8 +98,9 @@ object ex1 {
        """.stripMargin).show(30)
 
     //ранг по времени проведённому за продуктом в рамкаx одной сессии
-    spark.sql(
-      """
+    spark
+      .sql(
+        """
         |WITH timed AS (
         |SELECT category, product, userid, session_id,
         |round(avg(cast(cast(session_end AS int) - cast(session_start AS int) AS timestamp)),2) as duration
@@ -116,7 +117,8 @@ object ex1 {
         |)
         |SELECT category, product FROM final where rn <= 10
       """.stripMargin
-    ).show()
+      )
+      .show()
 
     sc.stop()
 
