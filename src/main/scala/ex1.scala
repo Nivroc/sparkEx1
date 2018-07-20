@@ -23,7 +23,7 @@ object ex1 {
       |p1 AS ( SELECT category, product, userId,
       |cast(to_utc_timestamp(eventTime, 'PST') AS int) AS op_date,
       |eventType,
-      |LAG(eventTime) OVER (PARTITION BY category, userid ORDER BY eventtime) AS lagg
+      |LAG(eventTime) OVER (PARTITION BY category, userid ORDER BY category, userId, eventtime) AS lagg
       |FROM exdata),
       |
       |p2 AS ( SELECT *,
@@ -35,7 +35,7 @@ object ex1 {
       |FROM p2),
       |
       |p33 as (
-      |SELECT *, SUM(session_break) OVER (ORDER BY op_date range between unbounded preceding and current row) as rng FROM p3
+      |SELECT *, SUM(session_break) OVER (ORDER BY category, userId, op_date range between unbounded preceding and current row) as rng FROM p3
       |),
       |
       |p4 AS (

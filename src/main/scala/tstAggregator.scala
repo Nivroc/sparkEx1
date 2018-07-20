@@ -27,7 +27,8 @@ object tstAggregator extends App {
 
     override def finish(reduction: A): B = {
       val st1 = reduction.value.map(kv => kv._1 -> kv._2.sortWith((x, y) => x.before(y)).foldLeft(Seq.empty[Seq[Timestamp]])((s, e) =>
-        if (s.nonEmpty && s.last.last.toLocalDateTime.minus(5, ChronoUnit.MINUTES).isBefore(e.toLocalDateTime)) s.init :+ (s.last :+ e) else s :+ Seq(e)))
+        if (s.nonEmpty && s.last.last.toLocalDateTime.plus(5, ChronoUnit.MINUTES).isAfter(e.toLocalDateTime)) s.init :+ (s.last :+ e) else s :+ Seq(e)))
+      st1.foreach(println)
       val globalIds = st1.values.toSeq.flatten.zipWithIndex.toMap
       B(st1.foldLeft(Seq.empty[SaturatedTableRow])((sq, kv) =>
         sq ++ kv._2.flatMap(sq => sq.map(time => SaturatedTableRow(kv._1._1, kv._1._2, time, globalIds(sq), sq.head, sq.last)))))
