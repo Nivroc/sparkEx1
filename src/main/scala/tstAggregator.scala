@@ -49,24 +49,23 @@ object tstAggregator extends App {
     .getOrCreate
 
   import spark.implicits._
-  
-  val rawDS = spark.createDataFrame(Seq(
-    TableRow("book", "Scala", 1, 1),
-    TableRow("book", "Scala", 1, 2),
-    TableRow("book", "Scala", 1, 3),
-    TableRow("book", "Scala", 1, 4),
-    TableRow("book", "Scala", 1, 10),
-    TableRow("book", "Scala", 1, 11)
-  ).map(x => MyRow(Key(x.category, x.userId), x.product, x.time))).as[MyRow]
 
-  val rawDSS = spark.createDataFrame(Seq(
+  val dataSeq = Seq(
     TableRow("book", "Scala", 1, 1),
     TableRow("book", "Scala", 1, 2),
     TableRow("book", "Scala", 1, 3),
     TableRow("book", "Scala", 1, 4),
     TableRow("book", "Scala", 1, 10),
-    TableRow("book", "Scala", 1, 11)
-  )).as[TableRow]
+    TableRow("book", "Scala", 1, 11),
+    TableRow("notebook", "Scala", 2, 2),
+    TableRow("PC", "Scala", 1, 14),
+    TableRow("PC", "Scala", 1, 15),
+    TableRow("PC", "Scala", 1, 30)
+  )
+
+  val rawDS = spark.createDataFrame(dataSeq.map(x => MyRow(Key(x.category, x.userId), x.product, x.time))).as[MyRow]
+
+  val rawDSS = spark.createDataFrame(dataSeq).as[TableRow]
 
   val hzcho = MyAgg.toColumn.name("average_salary")
   spark.createDataFrame(rawDS.select(hzcho).collect().head.value)
