@@ -69,11 +69,21 @@ object ex1 {
     //среднее время
     spark.sql(s"""SELECT distinct
          |category,
-         |round(avg(cast(cast(session_end AS int) - cast(session_start AS int) AS timestamp)), 2) AS median_duration
+         |round(avg(cast(cast(session_end AS int) - cast(session_start AS int) AS timestamp)), 2) AS average_time
          |FROM saturated_data
          |GROUP BY category
        """.stripMargin).show(30)
 
+    //медиана
+    /*
+    spark.sql(s"""SELECT distinct
+         |category,
+         |cast((cast(session_end AS int) - cast(session_start AS int))) AS duration,
+         |sessionId
+         |FROM saturated_data
+         |GROUP BY category, session_start, session_end, sessionId
+       """.stripMargin).show(30)
+*/
     //кто меньше минуты, кто 1-5, кто больше 5ти минут
     spark.sql(s"""WITH a1 AS
          |(SELECT distinct
