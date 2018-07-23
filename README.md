@@ -1,4 +1,4 @@
-This is a solution for Apple Big Data task, which involved:
+This is a solution for sample task, which involved:
 1. Saturating data with sessions, based on time lags and product changes. This task was done, using two different methods:
     - plain SQL, based on DF
     - Spark Aggregator
