@@ -22,3 +22,7 @@ target/scala-2\.11/classes/
 project/target/streams/runtime/internalDependencyClasspath/\$global/streams/
 
 project/target/streams/runtime/fullClasspath/\$global/streams/
+
+project/target/streams/\$global/update/\$global/streams/update_cache_2\.12/
+
+target/
