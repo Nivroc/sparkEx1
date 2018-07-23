@@ -75,15 +75,36 @@ object ex1 {
        """.stripMargin).show(30)
 
     //медиана
-    /*
-    spark.sql(s"""SELECT distinct
+    //слегонца чёрная магия.
+    //считаю что в нечётном сете серединное значение, в чётном - среднее между двумя близжайшими к среднему
+    spark.sql(s"""with a1 as ( SELECT distinct
          |category,
-         |cast((cast(session_end AS int) - cast(session_start AS int))) AS duration,
-         |sessionId
+         |(cast(session_end AS int) - cast(session_start AS int)) AS duration
          |FROM saturated_data
-         |GROUP BY category, session_start, session_end, sessionId
+         |order by category),
+         |a2 as (
+         |select category,
+         |duration,
+         |dense_rank() over (partition by category order by duration) as rnk from a1),
+         |a3 as (select category, duration, rnk, max(rnk) over (partition by category) as mxrnk from a2),
+         |a4 as (select
+         |category, duration, rnk, mxrnk, lead(duration) over (partition by category order by duration) as ld,
+         |case when mxrnk % 2 == 0 then
+         |cast ((mxrnk/2) as int)
+         |else
+         |cast((mxrnk/2 + 0.5) as int)
+         |end as medval
+         |from a3)
+         |select category,
+         |case when mxrnk % 2 == 0 then
+         |round((duration + ld) / 2, 1)
+         |else duration
+         |end as median
+         |from a4 where rnk = medval
        """.stripMargin).show(30)
-*/
+
+
+
     //кто меньше минуты, кто 1-5, кто больше 5ти минут
     spark.sql(s"""WITH a1 AS
          |(SELECT distinct
