@@ -1,4 +1,3 @@
-
 import java.sql.Timestamp
 import java.time.temporal.ChronoUnit
 
@@ -17,41 +16,58 @@ object AggregatorSolution extends App {
 
   case class RealTableRow(category: String, product: String, userId: String, eventTime: Timestamp, eventType: String)
 
-  case class SaturatedTableRow(category: String, userId: String, eventTime: Timestamp, sessionId: Int, sessionStart: Timestamp, sessionEnd: Timestamp)
+  case class SaturatedTableRow(
+    category: String,
+    userId: String,
+    eventTime: Timestamp,
+    sessionId: Int,
+    sessionStart: Timestamp,
+    sessionEnd: Timestamp
+  )
 
-  case class A(value: Map[(String, String), Seq[Timestamp]])
+  object MyAgg extends Aggregator[RealTableRow, Map[(String, String), Seq[Timestamp]], Seq[SaturatedTableRow]] {
 
-  case class B(value: Seq[SaturatedTableRow])
+    override def zero: Map[(String, String), Seq[Timestamp]] = Map.empty[(String, String), Seq[Timestamp]]
 
-  object MyAgg extends Aggregator[RealTableRow, A, B] {
+    override def reduce(
+      b: Map[(String, String), Seq[Timestamp]],
+      a: RealTableRow
+    ): Map[(String, String), Seq[Timestamp]] =
+      b.updated((a.category, a.userId), b.getOrElse((a.category, a.userId), Nil) :+ a.eventTime)
 
-    override def zero: A = A(Map.empty[(String, String), Seq[Timestamp]])
+    override def merge(
+      b1: Map[(String, String), Seq[Timestamp]],
+      b2: Map[(String, String), Seq[Timestamp]]
+    ): Map[(String, String), Seq[Timestamp]] =
+      (b1.keySet ++ b2.keySet).map(key => (key, b1.getOrElse(key, Nil) ++ b2.getOrElse(key, Nil))).toMap
 
-    override def reduce(b: A, a: RealTableRow): A =
-      A(b.value.updated((a.category, a.userId), b.value.getOrElse((a.category, a.userId), Nil) :+ a.eventTime))
-
-    override def merge(b1: A, b2: A): A =
-      A((b1.value.keySet ++ b2.value.keySet)
-        .map(key => (key, b1.value.getOrElse(key, Nil) ++ b2.value.getOrElse(key, Nil))).toMap)
-
-    override def finish(reduction: A): B = {
-      val st1 = reduction.value.map(kv => kv._1 -> kv._2.sortWith((x, y) => x.before(y))
-        .foldLeft(Seq.empty[Seq[Timestamp]])((s, e) =>
-          if (s.nonEmpty && s.last.last.toLocalDateTime.plus(5, ChronoUnit.MINUTES).isAfter(e.toLocalDateTime))
-            s.init :+ (s.last :+ e)
-          else
-            s :+ Seq(e)
-        ))
+    //formatter:off
+    override def finish(reduction: Map[(String, String), Seq[Timestamp]]): Seq[SaturatedTableRow] = {
+      val st1 = reduction.map(
+        kv =>
+          kv._1 -> kv._2
+            .sortWith((x, y) => x.before(y))
+            .foldLeft(Seq.empty[Seq[Timestamp]])(
+              (s, e) =>
+                if (s.nonEmpty && s.last.last.toLocalDateTime.plus(5, ChronoUnit.MINUTES).isAfter(e.toLocalDateTime))
+                  s.init :+ (s.last :+ e)
+                else
+                  s :+ Seq(e)
+          )
+      )
       val globalIds = st1.values.toSeq.flatten.zipWithIndex.toMap
-      B(st1.foldLeft(Seq.empty[SaturatedTableRow])((sq, kv) =>
-        sq ++ kv._2.flatMap(sq => sq.map(
-          time => SaturatedTableRow(kv._1._1, kv._1._2, time, globalIds(sq), sq.head, sq.last)
-        ))))
+      st1.foldLeft(Seq.empty[SaturatedTableRow])(
+        (sq, kv) =>
+          sq ++ kv._2
+            .flatMap(sq => sq.map(time => SaturatedTableRow(kv._1._1, kv._1._2, time, globalIds(sq), sq.head, sq.last)))
+      )
+      //formatter:on
     }
 
-    override def bufferEncoder: Encoder[A] = Encoders.product[A]
+    override def bufferEncoder: Encoder[Map[(String, String), Seq[Timestamp]]] =
+      Encoders.kryo[Map[(String, String), Seq[Timestamp]]]
 
-    override def outputEncoder: Encoder[B] = Encoders.product[B]
+    override def outputEncoder: Encoder[Seq[SaturatedTableRow]] = Encoders.kryo[Seq[SaturatedTableRow]]
   }
 
   val conf: SparkConf = new SparkConf().setMaster("local").setAppName("TestAssignmentApp")
@@ -60,6 +76,7 @@ object AggregatorSolution extends App {
     .master("local")
     .appName("Spark CSV Reader")
     .getOrCreate
+  conf.registerKryoClasses(Array(classOf[RealTableRow], classOf[SaturatedTableRow]))
 
   import spark.implicits._
 
@@ -71,11 +88,11 @@ object AggregatorSolution extends App {
     .add("eventTime", TimestampType)
     .add("eventType", StringType)
 
-
   val baseDf = spark.read.schema(schema).option("header", "true").csv(path).as[RealTableRow]
 
   val aggregate = MyAgg.toColumn.name("aggregated")
-  spark.createDataFrame(baseDf.select(aggregate).collect().head.value)
+  spark
+    .createDataFrame(baseDf.select(aggregate).collect().head)
     .as[SaturatedTableRow]
     .join(baseDf, Seq("category", "userId", "eventTime"), "left_outer")
     .distinct()

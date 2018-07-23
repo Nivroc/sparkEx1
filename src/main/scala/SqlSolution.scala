@@ -1,4 +1,3 @@
-
 import com.typesafe.config.ConfigFactory
 import org.apache.spark.{SparkConf, SparkContext}
 
@@ -66,8 +65,8 @@ object SqlSolution {
     firstWaySession.createOrReplaceTempView("saturated_data")
 
     //Session breaks if the delay is longer, than 5 mins, or the product in focus changes
-    val secondWaySession = spark.sql(mainQuery(
-      "(lag_seconds >= 300 or product != lag(product) over(ORDER BY op_date))"))
+    val secondWaySession =
+      spark.sql(mainQuery("(lag_seconds >= 300 or product != lag(product) over(ORDER BY op_date))"))
     secondWaySession.cache()
     secondWaySession.show(30)
     secondWaySession.createOrReplaceTempView("saturated_data2")
@@ -108,8 +107,6 @@ object SqlSolution {
          |from a4 where rnk = medval
        """.stripMargin).show(30)
 
-
-
     //Less, than a minute, 1-5, more, than 5 mins
     spark.sql(s"""WITH a1 AS
          |(SELECT distinct
@@ -135,8 +132,7 @@ object SqlSolution {
 
     //Product ranking by category by time spent
     spark
-      .sql(
-        """
+      .sql("""
         |WITH timed AS (
         |SELECT category, product, userid, session_id,
         |round(avg(cast(cast(session_end AS int) - cast(session_start AS int) AS timestamp)),2) as duration
@@ -152,8 +148,7 @@ object SqlSolution {
         |SELECT *, row_number() over (PARTITION BY category ORDER BY time DESC) AS rn FROM sorted
         |)
         |SELECT category, product FROM final where rn <= 10
-      """.stripMargin
-      )
+      """.stripMargin)
       .show()
 
     sc.stop()
