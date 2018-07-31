@@ -6,8 +6,8 @@ import org.apache.log4j.Level
 
 object SqlSolution {
 
-  Logger.getLogger("org").setLevel(Level.ERROR)
-  Logger.getLogger("akka").setLevel(Level.ERROR)
+  //Logger.getLogger("org").setLevel(Level.ERROR)
+ // Logger.getLogger("akka").setLevel(Level.ERROR)
 
   val conf: SparkConf = new SparkConf().setMaster("local").setAppName("TestAssignmentApp")
   val sc: SparkContext = new SparkContext(conf)
@@ -59,11 +59,21 @@ object SqlSolution {
       |""".stripMargin
 
     //Session breaks if the delay is longer, than 5 mins
-    val firstWaySession = spark.sql(mainQuery("lag_seconds >= 300"))
+   /* val firstWaySession = spark.sql(mainQuery("lag_seconds >= 300"))
     firstWaySession.cache()
     firstWaySession.show(30)
-    firstWaySession.createOrReplaceTempView("saturated_data")
+    firstWaySession.createOrReplaceTempView("saturated_data")*/
 
+    val tryOptimize = spark.sql(
+      """
+        |select *, row_number() over (partition by category, userId order by eventTime) as rnm from exdata
+        |
+      """.stripMargin)
+
+    tryOptimize.explain()
+    tryOptimize.show(30)
+
+    /*
     //Session breaks if the delay is longer, than 5 mins, or the product in focus changes
     val secondWaySession =
       spark.sql(mainQuery("(lag_seconds >= 300 or product != lag(product) over(ORDER BY op_date))"))
@@ -150,7 +160,7 @@ object SqlSolution {
         |SELECT category, product FROM final where rn <= 10
       """.stripMargin)
       .show()
-
+  */
     sc.stop()
 
   }

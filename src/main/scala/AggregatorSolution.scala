@@ -2,12 +2,9 @@ import java.sql.Timestamp
 import java.time.temporal.ChronoUnit
 
 import com.typesafe.config.ConfigFactory
-import org.apache.spark.sql.{Encoder, Encoders}
-import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.sql.expressions.Aggregator
+import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.types._
-import org.apache.log4j.Logger
-import org.apache.log4j.Level
+import org.apache.spark.{SparkConf, SparkContext}
 
 object AggregatorSolution extends App {
 
@@ -25,50 +22,13 @@ object AggregatorSolution extends App {
     sessionEnd: Timestamp
   )
 
-  object MyAgg extends Aggregator[RealTableRow, Map[(String, String), Seq[Timestamp]], Seq[SaturatedTableRow]] {
-
-    override def zero: Map[(String, String), Seq[Timestamp]] = Map.empty[(String, String), Seq[Timestamp]]
-
-    override def reduce(
-      b: Map[(String, String), Seq[Timestamp]],
-      a: RealTableRow
-    ): Map[(String, String), Seq[Timestamp]] =
-      b.updated((a.category, a.userId), b.getOrElse((a.category, a.userId), Nil) :+ a.eventTime)
-
-    override def merge(
-      b1: Map[(String, String), Seq[Timestamp]],
-      b2: Map[(String, String), Seq[Timestamp]]
-    ): Map[(String, String), Seq[Timestamp]] =
-      (b1.keySet ++ b2.keySet).map(key => (key, b1.getOrElse(key, Nil) ++ b2.getOrElse(key, Nil))).toMap
-
-    //formatter:off
-    override def finish(reduction: Map[(String, String), Seq[Timestamp]]): Seq[SaturatedTableRow] = {
-      val st1 = reduction.map(
-        kv =>
-          kv._1 -> kv._2
-            .sortWith((x, y) => x.before(y))
-            .foldLeft(Seq.empty[Seq[Timestamp]])(
-              (s, e) =>
-                if (s.nonEmpty && s.last.last.toLocalDateTime.plus(5, ChronoUnit.MINUTES).isAfter(e.toLocalDateTime))
-                  s.init :+ (s.last :+ e)
-                else
-                  s :+ Seq(e)
-          )
-      )
-      val globalIds = st1.values.toSeq.flatten.zipWithIndex.toMap
-      st1.foldLeft(Seq.empty[SaturatedTableRow])(
-        (sq, kv) =>
-          sq ++ kv._2
-            .flatMap(sq => sq.map(time => SaturatedTableRow(kv._1._1, kv._1._2, time, globalIds(sq), sq.head, sq.last)))
-      )
-      //formatter:on
-    }
-
-    override def bufferEncoder: Encoder[Map[(String, String), Seq[Timestamp]]] =
-      Encoders.kryo[Map[(String, String), Seq[Timestamp]]]
-
-    override def outputEncoder: Encoder[Seq[SaturatedTableRow]] = Encoders.kryo[Seq[SaturatedTableRow]]
-  }
+  case class Session(
+    category: String,
+    userId: String,
+    sessionStart: Timestamp,
+    sessionEnd: Timestamp,
+    times: Seq[Timestamp]
+  )
 
   val conf: SparkConf = new SparkConf().setMaster("local").setAppName("TestAssignmentApp")
   val sc: SparkContext = new SparkContext(conf)
@@ -90,13 +50,32 @@ object AggregatorSolution extends App {
 
   val baseDf = spark.read.schema(schema).option("header", "true").csv(path).as[RealTableRow]
 
-  val aggregate = MyAgg.toColumn.name("aggregated")
-  spark
-    .createDataFrame(baseDf.select(aggregate).collect().head)
-    .as[SaturatedTableRow]
+  import org.apache.spark.sql.functions._
+  case class KVTimestamp(category: String, userId: String, time: Timestamp)
+
+  val result = baseDf
+    .repartition($"category", $"userId")
+    .mapPartitions(iter => {
+      iter
+        .foldLeft(Seq.empty[Seq[KVTimestamp]])(
+          (s, e) =>
+            if (s.nonEmpty && s.last.last.time.toLocalDateTime
+                .plus(5, ChronoUnit.MINUTES)
+                .isAfter(e.eventTime.toLocalDateTime))
+              s.init :+ (s.last :+ KVTimestamp(e.category, e.userId, e.eventTime))
+            else
+              s :+ Seq(KVTimestamp(e.category, e.userId, e.eventTime))
+        )
+        .toIterator
+        .map(sq => Session(sq.head.category, sq.head.userId, sq.head.time, sq.last.time, sq.map(_.time)))
+    })
+    .withColumn("id", monotonically_increasing_id())
+    .withColumn("eventTime", explode($"times"))
+    .drop($"times")
     .join(baseDf, Seq("category", "userId", "eventTime"), "left_outer")
-    .distinct()
-    .orderBy("sessionId", "eventTime")
-    .show(30)
+
+    result.cache()
+    result.explain()
+    result.show()
 
 }
