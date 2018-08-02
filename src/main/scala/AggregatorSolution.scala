@@ -6,6 +6,8 @@ import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.types._
 import org.apache.spark.{SparkConf, SparkContext}
 
+import scala.collection.mutable
+
 object AggregatorSolution extends App {
 
   Logger.getLogger("org").setLevel(Level.ERROR)
@@ -57,14 +59,14 @@ object AggregatorSolution extends App {
     .repartition($"category", $"userId")
     .mapPartitions(iter => {
       iter
-        .foldLeft(Seq.empty[Seq[KVTimestamp]])(
+        .foldLeft(mutable.MutableList.empty[mutable.MutableList[KVTimestamp]])(
           (s, e) =>
             if (s.nonEmpty && s.last.last.time.toLocalDateTime
                 .plus(5, ChronoUnit.MINUTES)
                 .isAfter(e.eventTime.toLocalDateTime))
               s.init :+ (s.last :+ KVTimestamp(e.category, e.userId, e.eventTime))
             else
-              s :+ Seq(KVTimestamp(e.category, e.userId, e.eventTime))
+              s :+ mutable.MutableList(KVTimestamp(e.category, e.userId, e.eventTime))
         )
         .toIterator
         .map(sq => Session(sq.head.category, sq.head.userId, sq.head.time, sq.last.time, sq.map(_.time)))
