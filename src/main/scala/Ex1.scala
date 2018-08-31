@@ -1,6 +1,9 @@
 import java.sql.Timestamp
+import java.time.LocalDateTime
 
 import com.typesafe.config.ConfigFactory
+import org.apache.log4j.{Level, Logger}
+import org.apache.spark.sql.expressions.Window
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{DataFrame, Dataset}
 import org.apache.spark.sql.types._
@@ -12,6 +15,8 @@ object Ex1 extends App {
 
   case class InputRow(userId: Long, date: Timestamp, score: Int)
   case class MarkedRow(userId: Long, date: Timestamp, score: Int, status: String)
+  Logger.getLogger("org").setLevel(Level.ERROR)
+  Logger.getLogger("akka").setLevel(Level.ERROR)
 
   val conf: SparkConf = new SparkConf().setMaster("local").setAppName("TestAssignmentApp")
   val sc: SparkContext = new SparkContext(conf)
@@ -38,11 +43,10 @@ object Ex1 extends App {
     dataframe
       .withColumn("status", typedLit(""))
       .as[MarkedRow]
-      .sortWithinPartitions("date")
       .mapPartitions[MarkedRow] { iter: Iterator[MarkedRow] =>
         {
           val sorted = iter.to[mutable.MutableList].sortWith((x, y) => x.date.before(y.date))
-          if(sorted.isEmpty)
+          if (sorted.isEmpty)
             sorted.toIterator
           else
             (sorted.init :+ sorted.last.copy(status = "most_recent")).toIterator
@@ -50,5 +54,17 @@ object Ex1 extends App {
       }
       .toDF()
 
+  import org.apache.spark.sql.functions._
+
+  def markMostRecent2(dataframe: DataFrame): DataFrame =
+    dataframe
+      .withColumnRenamed("userId", "uid")
+      .withColumn("dateAsMs", unix_timestamp($"date"))
+      .withColumn("maxDate", max($"dateAsMs") over Window.partitionBy("uid"))
+      .withColumn("status", when($"dateAsMs" === $"maxdate", "most_recent").otherwise(""))
+      .select("uid", "date", "score", "status")
+      .toDF()
+
+  markMostRecent2(baseDf).show(30)
   markMostRecent(baseDf).show(30)
 }
